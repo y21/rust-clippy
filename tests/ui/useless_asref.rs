@@ -129,6 +129,22 @@ fn generic_ok<U: AsMut<T> + AsRef<T> + ?Sized, T: Debug + ?Sized>(mru: &mut U) {
     foo_rt(mru.as_ref());
 }
 
+pub mod issue10693 {
+    use std::io::Read;
+
+    pub fn read_byte<R: Read>(r: &mut R) {
+        let mut buf = [0u8; 1];
+        r.read_exact(&mut buf).unwrap();
+        println!("First byte: {}", buf[0]);
+    }
+
+    pub fn main() {
+        let data: &[u8] = &[3; 10];
+        // Do not suggest to remove as_ref here, as that would change the behavior
+        read_byte(&mut data.as_ref());
+    }
+}
+
 fn main() {
     not_ok();
     ok();

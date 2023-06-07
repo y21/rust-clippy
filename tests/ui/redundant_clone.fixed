@@ -63,6 +63,9 @@ fn main() {
     clone_then_move_cloned();
     hashmap_neg();
     false_negative_5707();
+    issue10893();
+    issue10893v2();
+    issue10893_comment();
 }
 
 #[derive(Clone)]
@@ -239,4 +242,39 @@ fn false_negative_5707() {
     foo(&x, &mut y);
     let _z = x.clone(); // pr 7346 can't lint on `x`
     drop(y);
+}
+
+fn issue10893() {
+    let a = String::new();
+    {
+        let _a2 = a.clone();
+    }
+    {
+        let _a2 = a;
+    }
+}
+
+fn issue10893v2() {
+    let a = String::new();
+    {
+        let mut _a2 = a.clone();
+        _a2.push('a');
+    }
+    {
+        let mut _a2 = a;
+        _a2.push('b');
+    }
+}
+
+fn issue10893_comment() {
+    #[derive(Clone)]
+    struct A {
+        a: u32,
+        b: u32,
+    }
+
+    let a = A { a: 42, b: 0 };
+    let mut aa = a.clone();
+    aa.b = 1024;
+    dbg!(&a.a);
 }

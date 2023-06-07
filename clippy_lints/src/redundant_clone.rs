@@ -192,14 +192,13 @@ impl<'tcx> LateLintPass<'tcx> for RedundantClone {
                 }
             } else {
                 let clone_usage = visit_clone_usage(local, ret_local, mir, bb);
-                if clone_usage.cloned_used && clone_usage.clone_consumed_or_mutated {
-                    // cloned value is used, and the clone is modified or moved
+                if (clone_usage.cloned_used && clone_usage.clone_consumed_or_mutated)
+                    || clone_usage.cloned_consume_or_mutate_loc.is_some()
+                {
+                    // cloned value is used, and the clone is modified or moved, or:
+                    // cloned value is mutated or moved, and the clone is alive.
+                    // if the cloned value is later consumed, the clone is obviously needed.
                     continue;
-                } else if let Some(loc) = clone_usage.cloned_consume_or_mutate_loc {
-                    // cloned value is mutated, and the clone is alive.
-                    if possible_borrower.local_is_alive_at(ret_local, loc) {
-                        continue;
-                    }
                 }
                 clone_usage
             };

@@ -212,6 +212,8 @@ impl<'tcx> LateLintPass<'tcx> for RedundantClone {
                 .assert_crate_local()
                 .lint_root;
 
+            // Ignore this commit.
+
             if_chain! {
                 if let Some(snip) = snippet_opt(cx, span);
                 if let Some(dot) = snip.rfind('.');

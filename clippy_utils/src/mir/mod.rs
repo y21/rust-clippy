@@ -70,7 +70,7 @@ impl<'a, 'tcx> Visitor<'tcx> for V<'a> {
                 if matches!(
                     ctx,
                     PlaceContext::NonMutatingUse(NonMutatingUseContext::Move)
-                        | PlaceContext::MutatingUse(MutatingUseContext::Borrow)
+                        | PlaceContext::MutatingUse(MutatingUseContext::Borrow | MutatingUseContext::Store)
                 ) {
                     self.results[i].local_consume_or_mutate_locs.push(loc);
                 }

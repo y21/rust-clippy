@@ -92,7 +92,7 @@ where
         if first_attrs.is_empty();
         if iter
             .all(|arm| {
-                find_bool_lit(&arm.2.kind).map_or(false, |b| b == b0) && arm.3.is_none() && arm.0.is_empty()
+                find_bool_lit(&arm.2.kind) == Some(b0) && arm.3.is_none() && arm.0.is_empty()
             });
         then {
             if let Some(last_pat) = last_pat_opt {

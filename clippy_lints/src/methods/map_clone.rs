@@ -46,7 +46,7 @@ pub(super) fn check(cx: &LateContext<'_>, e: &hir::Expr<'_>, recv: &hir::Expr<'_
                             if ident_eq(name, obj) && method.ident.name == sym::clone;
                             if let Some(fn_id) = cx.typeck_results().type_dependent_def_id(closure_expr.hir_id);
                             if let Some(trait_id) = cx.tcx.trait_of_item(fn_id);
-                            if cx.tcx.lang_items().clone_trait().map_or(false, |id| id == trait_id);
+                            if cx.tcx.lang_items().clone_trait() == Some(trait_id);
                             // no autoderefs
                             if !cx.typeck_results().expr_adjustments(obj).iter()
                                 .any(|a| matches!(a.kind, Adjust::Deref(Some(..))));

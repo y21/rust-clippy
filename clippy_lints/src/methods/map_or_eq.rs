@@ -23,6 +23,9 @@ pub(super) fn check(cx: &LateContext<'_>, expr: &Expr<'_>, recv: &Expr<'_>, def:
         && let BinOpKind::Eq = op.node
         && path_to_local_id(lhs, id)
         && eager_or_lazy::switch_to_eager_eval(cx, rhs)
+        && let lhs_ty = cx.typeck_results().expr_ty(lhs)
+        && let rhs_ty = cx.typeck_results().expr_ty(rhs)
+        && lhs_ty == rhs_ty
     {
         let lhs_snippet = snippet(cx, recv.span, "<lhs>");
         let rhs_snippet = snippet(cx, rhs.span, "<rhs>");

@@ -55,6 +55,7 @@ mod map_collect_result_unit;
 mod map_err_ignore;
 mod map_flatten;
 mod map_identity;
+mod map_or_eq;
 mod map_unwrap_or;
 mod mut_mutex_lock;
 mod needless_collect;
@@ -3284,6 +3285,30 @@ declare_clippy_lint! {
     "calling `.drain(..).collect()` to move all elements into a new collection"
 }
 
+declare_clippy_lint! {
+    /// ### What it does
+    /// Checks for calls to `x.map_or(false, |val| val == y)` where `y` is some
+    /// expression that is trivial to compute and can be evaluated eagerly (e.g. a constant)
+    ///
+    /// ### Why is this bad?
+    /// `x == Some(y)` is more concise and easier to read.
+    ///
+    /// ### Example
+    /// ```rust
+    /// let opt = Some(42);
+    /// let _ = opt.map_or(false, |val| val == 5);
+    /// ```
+    /// Use instead:
+    /// ```rust
+    /// let opt = Some(42);
+    /// let _ = opt == Some(5);
+    /// ```
+    #[clippy::version = "1.72.0"]
+    pub MAP_OR_EQ,
+    style,
+    "calling `x.map_or(false, |val| val == y)`"
+}
+
 pub struct Methods {
     avoid_breaking_exported_api: bool,
     msrv: Msrv,
@@ -3414,7 +3439,8 @@ impl_lint_pass!(Methods => [
     CLEAR_WITH_DRAIN,
     MANUAL_NEXT_BACK,
     UNNECESSARY_LITERAL_UNWRAP,
-    DRAIN_COLLECT
+    DRAIN_COLLECT,
+    MAP_OR_EQ,
 ]);
 
 /// Extracts a method call name, args, and `Span` of the method name.
@@ -3770,6 +3796,7 @@ impl Methods {
                 ("map_or", [def, map]) => {
                     option_map_or_none::check(cx, expr, recv, def, map);
                     manual_ok_or::check(cx, expr, recv, def, map);
+                    map_or_eq::check(cx, expr, recv, def, map);
                 },
                 ("next", []) => {
                     if let Some((name2, recv2, args2, _, _)) = method_call(recv) {

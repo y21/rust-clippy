@@ -370,6 +370,7 @@ pub(crate) static LINTS: &[&crate::LintInfo] = &[
     crate::methods::MAP_ERR_IGNORE_INFO,
     crate::methods::MAP_FLATTEN_INFO,
     crate::methods::MAP_IDENTITY_INFO,
+    crate::methods::MAP_OR_EQ_INFO,
     crate::methods::MAP_UNWRAP_OR_INFO,
     crate::methods::MUT_MUTEX_LOCK_INFO,
     crate::methods::NAIVE_BYTECOUNT_INFO,

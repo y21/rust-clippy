@@ -1,0 +1,16 @@
+error: this can be written more concisely using `==`
+  --> $DIR/map_or_eq.rs:10:13
+   |
+LL |     let _ = opt.map_or(false, |val| val == 5); // lint
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `opt == Some(5)`
+   |
+   = note: `-D clippy::map-or-eq` implied by `-D warnings`
+
+error: this can be written more concisely using `==`
+  --> $DIR/map_or_eq.rs:11:13
+   |
+LL |     let _ = potential_side_effect::<Option<i32>>().map_or(false, |val| val == 5); // lint
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `potential_side_effect::<Option<i32>>() == Some(5)`
+
+error: aborting due to 2 previous errors
+

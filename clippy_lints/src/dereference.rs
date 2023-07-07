@@ -8,6 +8,7 @@ use clippy_utils::{
     fn_def_id, get_parent_expr, get_parent_expr_for_hir, is_lint_allowed, path_to_local, walk_to_expr_usage,
 };
 
+use hir::ConstContext;
 use rustc_ast::util::parser::{PREC_POSTFIX, PREC_PREFIX};
 use rustc_data_structures::fx::FxIndexMap;
 use rustc_data_structures::graph::iterate::{CycleDetector, TriColorDepthFirstSearch};
@@ -1296,6 +1297,16 @@ fn referent_used_exactly_once<'tcx>(
     possible_borrowers: &mut Vec<(LocalDefId, PossibleBorrowerMap<'tcx, 'tcx>)>,
     reference: &Expr<'tcx>,
 ) -> bool {
+    let hir = cx.tcx.hir();
+    if !matches!(
+        hir.body_const_context(hir.enclosing_body_owner(reference.hir_id)),
+        Some(ConstContext::ConstFn) | None
+    ) {
+        // Early return false here to avoid trying to get MIR for items that we can't get optimized MIR for
+        // (e.g. statics)
+        return false;
+    }
+
     let mir = enclosing_mir(cx.tcx, reference.hir_id);
     if let Some(local) = expr_local(cx.tcx, reference)
         && let [location] = *local_assignments(mir, local).as_slice()

@@ -1,10 +1,14 @@
 //! Checks for usage of  `&Vec[_]` and `&String`.
 
+use clippy_utils::consts::{constant, Constant};
 use clippy_utils::diagnostics::{span_lint, span_lint_and_sugg, span_lint_and_then, span_lint_hir_and_then};
 use clippy_utils::source::snippet_opt;
 use clippy_utils::ty::expr_sig;
 use clippy_utils::visitors::contains_unsafe_block;
-use clippy_utils::{get_expr_use_or_unification_node, is_lint_allowed, path_def_id, path_to_local, paths};
+use clippy_utils::{
+    get_expr_use_or_unification_node, is_expr_path_def_path, is_lint_allowed, path_def_id, path_to_local, paths,
+    SpanlessEq,
+};
 use hir::LifetimeName;
 use if_chain::if_chain;
 use rustc_errors::{Applicability, MultiSpan};
@@ -21,7 +25,7 @@ use rustc_infer::infer::TyCtxtInferExt;
 use rustc_infer::traits::{Obligation, ObligationCause};
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::hir::nested_filter;
-use rustc_middle::ty::{self, Binder, ClauseKind, ExistentialPredicate, List, PredicateKind, Ty};
+use rustc_middle::ty::{self, Binder, ClauseKind, ExistentialPredicate, List, PredicateKind, Ty, TypeckResults};
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 use rustc_span::source_map::Span;
 use rustc_span::sym;
@@ -153,6 +157,33 @@ declare_clippy_lint! {
     "invalid usage of a null pointer, suggesting `NonNull::dangling()` instead"
 }
 
+declare_clippy_lint! {
+    /// ### What it does
+    /// Looks for calls to `ptr::copy_nonoverlapping` with overlapping ranges
+    ///
+    /// ### Why is this bad?
+    /// This causes undefined behavior.
+    ///
+    /// ### Example
+    /// ```ignore
+    /// let mut arr = [0; 10];
+    /// let src = arr.as_ptr().add(5);
+    /// let dest = arr.as_mut_ptr();
+    /// // SAFETY: there's no safety, this is Undefined Behavior. Source and dest do in fact overlap at `5..8`.
+    /// // Don't write this!
+    /// unsafe { std::ptr::copy_nonoverlapping(src, dest, 3); }
+    /// ```
+    /// Use instead:
+    /// ```ignore
+    /// let mut arr = [0; 10];
+    /// unsafe { std::ptr::copy(arr.as_ptr().add(5), arr.as_mut_ptr(), 3); }
+    /// ```
+    #[clippy::version = "1.72.0"]
+    pub OVERLAPPING_MEMCPY,
+    correctness,
+    "default lint description"
+}
+
 declare_lint_pass!(Ptr => [PTR_ARG, CMP_NULL, MUT_FROM_REF, INVALID_NULL_PTR_USAGE]);
 
 impl<'tcx> LateLintPass<'tcx> for Ptr {
@@ -270,6 +301,8 @@ impl<'tcx> LateLintPass<'tcx> for Ptr {
                     "comparing with null is better expressed by the `.is_null()` method",
                 );
             }
+        } else if let ExprKind::Call(func, args) = &expr.kind {
+            check_overlapping_memcpy(cx, expr, args, func);
         } else {
             check_invalid_ptr_usage(cx, expr);
         }
@@ -787,5 +820,54 @@ fn is_null_path(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
         })
     } else {
         false
+    }
+}
+
+fn find_pointee_and_offset<'tcx, 'hir>(
+    cx: &LateContext<'tcx>,
+    typeck_results: &TypeckResults<'tcx>,
+    expr: &'hir Expr<'hir>,
+    offset: u128,
+) -> Option<(&'hir Expr<'hir>, u128)> {
+    if let ExprKind::MethodCall(seg, recv, args, _) = expr.kind {
+        if typeck_results.expr_ty(recv).is_unsafe_ptr()
+            && seg.ident.name == sym!(add)
+            && let [add_offset] = args
+            && let Some(Constant::Int(add_offset)) = constant(cx, typeck_results, add_offset)
+        {
+            find_pointee_and_offset(cx, typeck_results, recv, offset + add_offset)
+        } else if [sym!(as_mut_ptr), sym!(as_ptr)].contains(&seg.ident.name) {
+            Some((recv, offset))
+        } else {
+            None
+        }
+    } else if typeck_results.expr_ty(expr).is_unsafe_ptr() {
+        Some((expr, offset))
+    } else {
+        None
+    }
+}
+
+fn check_overlapping_memcpy<'tcx, 'hir>(
+    cx: &LateContext<'tcx>,
+    call: &Expr<'hir>,
+    args: &'hir [Expr<'hir>],
+    func: &'hir Expr<'hir>,
+) {
+    if is_expr_path_def_path(cx, func, &paths::PTR_COPY_NONOVERLAPPING)
+        && let [src, dest, count] = args
+        && let Some((src_expr, src_offset)) = find_pointee_and_offset(cx, cx.typeck_results(), src, 0)
+        && let Some((dest_expr, dest_offset)) = find_pointee_and_offset(cx, cx.typeck_results(), dest, 0)
+        && SpanlessEq::new(cx).deny_side_effects().eq_expr(src_expr, dest_expr)
+        && let Some(Constant::Int(count)) = constant(cx, cx.typeck_results(), count)
+        // Does the range of the source pointer overlap with the range of the destination pointer?
+        && src_offset.min(dest_offset) + count - 1 > src_offset.max(dest_offset)
+    {
+        span_lint_and_then(cx, OVERLAPPING_MEMCPY, call.span, "calling `ptr::copy_nonoverlapping` with overlapping regions", |diag| {
+            diag.span_note(src.span, format!("source pointer covers range `{src_offset}..{end}`", end = src_offset + count));
+            diag.span_note(dest.span, format!("destination pointer covers range `{dest_offset}..{end}`", end = dest_offset + count));
+            diag.span_suggestion(func.span, "instead use", "std::ptr::copy", Applicability::MachineApplicable);
+            diag.note("it is Undefined Behavior to call `ptr::copy_nonoverlapping` with overlapping regions");
+        });
     }
 }

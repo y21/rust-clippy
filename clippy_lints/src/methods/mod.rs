@@ -73,6 +73,7 @@ mod option_map_or_none;
 mod option_map_unwrap_or;
 mod or_fun_call;
 mod or_then_unwrap;
+mod overlapping_memcpy;
 mod path_buf_push_overwrite;
 mod range_zip_with_len;
 mod read_line_without_trim;

@@ -1,0 +1,43 @@
+error: calling `ptr::copy_nonoverlapping` with overlapping regions
+  --> $DIR/overlapping_memcpy.rs:8:9
+   |
+LL |         std::ptr::copy_nonoverlapping(ptr, ptr, 10);
+   |         -----------------------------^^^^^^^^^^^^^^
+   |         |
+   |         help: instead use: `std::ptr::copy`
+   |
+note: source pointer covers range `0..10`
+  --> $DIR/overlapping_memcpy.rs:8:39
+   |
+LL |         std::ptr::copy_nonoverlapping(ptr, ptr, 10);
+   |                                       ^^^
+note: destination pointer covers range `0..10`
+  --> $DIR/overlapping_memcpy.rs:8:44
+   |
+LL |         std::ptr::copy_nonoverlapping(ptr, ptr, 10);
+   |                                            ^^^
+   = note: it is Undefined Behavior to call `ptr::copy_nonoverlapping` with overlapping regions
+   = note: `-D clippy::overlapping-memcpy` implied by `-D warnings`
+
+error: calling `ptr::copy_nonoverlapping` with overlapping regions
+  --> $DIR/overlapping_memcpy.rs:14:9
+   |
+LL |         std::ptr::copy_nonoverlapping(ptr.add(10), ptr.add(10), 10);
+   |         -----------------------------^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: instead use: `std::ptr::copy`
+   |
+note: source pointer covers range `10..20`
+  --> $DIR/overlapping_memcpy.rs:14:39
+   |
+LL |         std::ptr::copy_nonoverlapping(ptr.add(10), ptr.add(10), 10);
+   |                                       ^^^^^^^^^^^
+note: destination pointer covers range `10..20`
+  --> $DIR/overlapping_memcpy.rs:14:52
+   |
+LL |         std::ptr::copy_nonoverlapping(ptr.add(10), ptr.add(10), 10);
+   |                                                    ^^^^^^^^^^^
+   = note: it is Undefined Behavior to call `ptr::copy_nonoverlapping` with overlapping regions
+
+error: aborting due to 2 previous errors
+

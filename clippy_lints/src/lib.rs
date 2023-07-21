@@ -329,6 +329,7 @@ mod unit_types;
 mod unnamed_address;
 mod unnecessary_box_returns;
 mod unnecessary_owned_empty_strings;
+mod unnecessary_refcell;
 mod unnecessary_self_imports;
 mod unnecessary_struct_initialization;
 mod unnecessary_wraps;
@@ -1099,6 +1100,7 @@ pub fn register_plugins(store: &mut rustc_lint::LintStore, sess: &Session, conf:
     store.register_late_pass(|_| Box::new(ignored_unit_patterns::IgnoredUnitPatterns));
     store.register_late_pass(|_| Box::<reserve_after_initialization::ReserveAfterInitialization>::default());
     store.register_late_pass(|_| Box::new(implied_bounds_in_impls::ImpliedBoundsInImpls));
+    store.register_late_pass(|_| Box::<unnecessary_refcell::UnnecessaryRefcell>::default());
     // add lints here, do not remove this comment, it's used in `new_lint`
 }
 

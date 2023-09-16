@@ -12,6 +12,8 @@ use rustc_hir_analysis::hir_ty_to_ty;
 use rustc_infer::infer::TyCtxtInferExt as _;
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::lint::in_external_macro;
+use rustc_middle::ty::fast_reject::{simplify_type, TreatParams};
+use rustc_middle::ty::{self, Ty};
 use rustc_session::{declare_lint_pass, declare_tool_lint};
 use std::ops::Deref;
 
@@ -258,6 +260,25 @@ fn check_unnecessary_operation(cx: &LateContext<'_>, stmt: &Stmt<'_>) {
     }
 }
 
+/// Checks if a given type only has a single, non-generic `Copy` impl
+fn has_single_copy_impl<'tcx>(cx: &LateContext<'tcx>, ty: Ty<'tcx>) -> bool {
+    if let Some(copy_did) = cx.tcx.lang_items().copy_trait()
+        && let copy_impls = cx.tcx.trait_impls_of(copy_did).non_blanket_impls()
+        && let Some(simplified_ty) = simplify_type(cx.tcx, ty, TreatParams::ForLookup)
+        // Make sure there's only one copy impl for the given type
+        && let Some(&[impl_did]) = copy_impls.get(&simplified_ty).map(|impls| &**impls)
+        && let Some(trait_ref) = cx.tcx.impl_trait_ref(impl_did)
+        && let ty::Adt(_, generics) = trait_ref.skip_binder().self_ty().kind()
+    {
+        // Check that the only `Copy` impl for the type has no type parameter in the substs
+        generics.iter().all(|g| g.walk().all(|g| {
+            matches!(g.unpack(), ty::GenericArgKind::Type(ty) if !matches!(ty.kind(), ty::Param(_)))
+        }))
+    } else {
+        false
+    }
+}
+
 fn reduce_expression<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<Vec<&'a Expr<'a>>> {
     if expr.span.from_expansion() {
         return None;
@@ -268,8 +289,22 @@ fn reduce_expression<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<Vec
             Some(vec![a, b])
         },
         ExprKind::Array(v) | ExprKind::Tup(v) => Some(v.iter().collect()),
-        ExprKind::Repeat(inner, _)
-        | ExprKind::Cast(inner, _)
+        ExprKind::Repeat(inner, _) => {
+            // Array repeat expressions `[x; N]` can usually be reduced to just `x`, *except* for when
+            // the type of `x` has generic parameters and there is only a single non-generic `Copy` impl for the
+            // type of `x`. This constrains the generics to the types used in the `Copy` impl, which
+            // in turn can help type inference deduce the exact type. So reducing it can actually
+            // introduce compile errors. See #9951 for an example.
+            if let &ty::Array(ty, len) = cx.typeck_results().expr_ty(expr).kind()
+                && len.try_eval_target_usize(cx.tcx, cx.param_env).is_some_and(|n| n > 1)
+                && has_single_copy_impl(cx, ty)
+            {
+                None
+            } else {
+                reduce_expression(cx, inner).or_else(|| Some(vec![inner]))
+            }
+        },
+        ExprKind::Cast(inner, _)
         | ExprKind::Type(inner, _)
         | ExprKind::Unary(_, inner)
         | ExprKind::Field(inner, _)

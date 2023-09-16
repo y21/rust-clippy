@@ -119,5 +119,53 @@ LL | |         s: String::from("blah"),
 LL | |     };
    | |______^ help: statement can be reduced to: `String::from("blah");`
 
-error: aborting due to 19 previous errors
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:114:9
+   |
+LL |         [MaybeCopy::<u8>::default(); 0];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `MaybeCopy::<u8>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:116:9
+   |
+LL |         [MaybeCopy::<u8>::default(); 1];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `MaybeCopy::<u8>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:126:9
+   |
+LL |         [S::<u8>::default(); 13];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `S::<u8>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:128:9
+   |
+LL |         [S::<u8>::default(); 0];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `S::<u8>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:140:9
+   |
+LL |         [S::<u8>::default(); 13];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `S::<u8>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:142:9
+   |
+LL |         [S::<u8>::default(); 0];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `S::<u8>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:156:9
+   |
+LL |         [S2::<S<u8>>::default(); 13];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `S2::<S<u8>>::default();`
+
+error: unnecessary operation
+  --> $DIR/unnecessary_operation.rs:158:9
+   |
+LL |         [S2::<S<u8>>::default(); 0];
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: statement can be reduced to: `S2::<S<u8>>::default();`
+
+error: aborting due to 27 previous errors
 

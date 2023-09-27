@@ -295,3 +295,46 @@ impl From<Foo<'a'>> for Foo<'b'> {
         Foo
     }
 }
+
+#[allow(
+    clippy::into_iter_on_ref,
+    clippy::needless_borrow,
+    clippy::deref_addrof,
+    clippy::borrow_deref_ref,
+    clippy::double_parens
+)]
+fn issue11572() {
+    use std::ops::{Deref, DerefMut};
+
+    struct CustomDeref;
+    impl Deref for CustomDeref {
+        type Target = [i32];
+        fn deref(&self) -> &Self::Target {
+            &[]
+        }
+    }
+
+    struct CustomDerefByValue;
+    impl Deref for CustomDerefByValue {
+        type Target = [&'static i32; 1];
+        fn deref(&self) -> &Self::Target {
+            &[&1]
+        }
+    }
+
+    let mut x = &[1];
+    let y = &&[2];
+
+    let _: Option<(&i32, &i32)> = x.iter().zip(y.into_iter()).next();
+    let _: Option<(&i32, &i32)> = x.iter().zip((*(&&&y)).into_iter()).next();
+    let _: Option<(&i32, &i32)> = x.iter().zip((&&&CustomDeref).into_iter()).next();
+    let _: Option<(&i32, &i32)> = x.iter().zip((&&*CustomDeref).into_iter()).next();
+    let _: Option<(&i32, &i32)> = x.iter().zip((&&&CustomDerefByValue).into_iter()).next();
+
+    let x: &[i32] = &[1];
+    let y: &&[i32] = &x;
+    let _: Option<(&i32, &i32)> = x.iter().zip(y.into_iter()).next();
+
+    let y = Box::<[i32]>::from([1, 2, 3]);
+    let _: Option<(&i32, &i32)> = x.iter().zip((&y).into_iter()).next();
+}

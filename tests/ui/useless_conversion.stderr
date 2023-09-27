@@ -226,5 +226,89 @@ note: this parameter accepts any `IntoIterator`, so you don't need to call `.int
 LL |                 J: IntoIterator,
    |                    ^^^^^^^^^^^^
 
-error: aborting due to 28 previous errors
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:328:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip(y.into_iter()).next();
+   |                                                ^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `*y`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:329:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip((*(&&&y)).into_iter()).next();
+   |                                                ^^^^^^^^^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `***(*(&&&y))`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:330:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip((&&&CustomDeref).into_iter()).next();
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `&****(&&&CustomDeref)`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:331:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip((&&*CustomDeref).into_iter()).next();
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `*(&&*CustomDeref)`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:332:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip((&&&CustomDerefByValue).into_iter()).next();
+   |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `****(&&&CustomDerefByValue)`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:336:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip(y.into_iter()).next();
+   |                                                ^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `*y`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: explicit call to `.into_iter()` in function argument accepting `IntoIterator`
+  --> $DIR/useless_conversion.rs:339:48
+   |
+LL |     let _: Option<(&i32, &i32)> = x.iter().zip((&y).into_iter()).next();
+   |                                                ^^^^^^^^^^^^^^^^ help: consider removing the `.into_iter()`: `&**(&y)`
+   |
+note: this parameter accepts any `IntoIterator`, so you don't need to call `.into_iter()`
+  --> /home/timo/.rustup/toolchains/nightly-2023-09-25-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/iter/traits/iterator.rs:642:12
+   |
+LL |         U: IntoIterator,
+   |            ^^^^^^^^^^^^
+
+error: aborting due to 35 previous errors
 

@@ -4,6 +4,7 @@ use clippy_utils::sugg::Sugg;
 use clippy_utils::ty::{is_copy, is_type_diagnostic_item, same_type_and_consts};
 use clippy_utils::{get_parent_expr, is_trait_method, is_ty_alias, match_def_path, path_to_local, paths};
 use if_chain::if_chain;
+use rustc_ast::Mutability;
 use rustc_errors::Applicability;
 use rustc_hir::def::DefKind;
 use rustc_hir::def_id::DefId;
@@ -12,6 +13,7 @@ use rustc_infer::infer::TyCtxtInferExt;
 use rustc_infer::traits::Obligation;
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_middle::traits::ObligationCause;
+use rustc_middle::ty::adjustment::{Adjust, Adjustment};
 use rustc_middle::ty::{self, EarlyBinder, GenericArg, GenericArgsRef, Ty, TypeVisitableExt};
 use rustc_session::{declare_tool_lint, impl_lint_pass};
 use rustc_span::{sym, Span};
@@ -255,7 +257,42 @@ impl<'tcx> LateLintPass<'tcx> for UselessConversion {
 
                             let plural = if depth == 0 { "" } else { "s" };
                             let mut applicability = Applicability::MachineApplicable;
-                            let sugg = snippet_with_applicability(cx, into_iter_recv.span.source_callsite(), "<expr>", &mut applicability).into_owned();
+
+                            let mut sugg = String::new();
+
+                            // We might need to include dereferences in the suggestion if the type goes through auto deref
+                            // or other coercions
+                            let adjs = cx.typeck_results().expr_adjustments(into_iter_recv);
+                            let mut derefs_needed = adjs
+                                .iter()
+                                .filter(|adj| matches!(adj.kind, Adjust::Deref(_)))
+                                .count();
+
+                            if let &[
+                                ..,
+                                Adjustment { kind: Adjust::Deref(_), .. },
+                                Adjustment { kind: Adjust::Borrow(_), target }
+                            ] = adjs
+                                && let &ty::Ref(.., mtbl) = target.kind()
+                            {
+                                let requires_explicit_ref_deref = match adjs {
+                                    &[.., Adjustment { target: deref_target, .. }, _, _] => deref_target != target,
+                                    _ => true
+                                };
+
+                                if requires_explicit_ref_deref {
+                                    sugg += match mtbl {
+                                        Mutability::Mut => "&mut *",
+                                        Mutability::Not => "&*",
+                                    };
+                                }
+
+                                derefs_needed -= 1;
+                            }
+
+                            sugg += &"*".repeat(derefs_needed);
+                            sugg += &snippet_with_applicability(cx, into_iter_recv.span.source_callsite(), "<expr>", &mut applicability);
+
                             span_lint_and_then(cx, USELESS_CONVERSION, e.span, "explicit call to `.into_iter()` in function argument accepting `IntoIterator`", |diag| {
                                 diag.span_suggestion(
                                     e.span,

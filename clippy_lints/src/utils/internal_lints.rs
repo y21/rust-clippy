@@ -11,3 +11,4 @@ pub mod msrv_attr_impl;
 pub mod outer_expn_data_pass;
 pub mod produce_ice;
 pub mod unnecessary_def_path;
+pub mod unordered_diagnostic;

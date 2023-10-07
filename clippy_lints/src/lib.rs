@@ -583,6 +583,8 @@ pub fn register_plugins(store: &mut rustc_lint::LintStore, sess: &Session, conf:
         });
         store.register_late_pass(|_| Box::new(utils::internal_lints::if_chain_style::IfChainStyle));
         store.register_late_pass(|_| Box::new(utils::internal_lints::invalid_paths::InvalidPaths));
+        store
+            .register_late_pass(|_| Box::<utils::internal_lints::unordered_diagnostic::UnorderedDiagnostic>::default());
         store.register_late_pass(|_| {
             Box::<utils::internal_lints::interning_defined_symbol::InterningDefinedSymbol>::default()
         });

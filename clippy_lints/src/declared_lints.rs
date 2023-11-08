@@ -111,6 +111,7 @@ pub(crate) static LINTS: &[&crate::LintInfo] = &[
     crate::copies::IF_SAME_THEN_ELSE_INFO,
     crate::copies::SAME_FUNCTIONS_IN_IF_CONDITION_INFO,
     crate::copy_iterator::COPY_ITERATOR_INFO,
+    crate::covariant_mutable_types::COVARIANT_MUTABLE_TYPES_INFO,
     crate::crate_in_macro_def::CRATE_IN_MACRO_DEF_INFO,
     crate::create_dir::CREATE_DIR_INFO,
     crate::dbg_macro::DBG_MACRO_INFO,

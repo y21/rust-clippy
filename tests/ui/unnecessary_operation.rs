@@ -92,3 +92,33 @@ fn main() {
     }
     use_expr!(isize::MIN / -(one() as isize), i8::MIN / -one());
 }
+
+mod issue11885 {
+    use std::fmt::Display;
+    use std::ops::Shl;
+
+    #[allow(non_camel_case_types)]
+    struct cout;
+
+    impl<T> Shl<T> for cout
+    where
+        T: Display,
+    {
+        type Output = Self;
+        fn shl(self, rhs: T) -> Self::Output {
+            println!("{}", rhs);
+            self
+        }
+    }
+
+    fn n() -> i32 {
+        42
+    }
+
+    #[allow(unused_must_use)]
+    #[allow(clippy::no_effect)]
+    fn f() {
+        cout << 142;
+        cout << n();
+    }
+}

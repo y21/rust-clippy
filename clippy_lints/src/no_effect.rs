@@ -5,7 +5,8 @@ use clippy_utils::{get_parent_node, is_lint_allowed, peel_blocks};
 use rustc_errors::Applicability;
 use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{
-    is_range_literal, BinOpKind, BlockCheckMode, Expr, ExprKind, ItemKind, Node, PatKind, Stmt, StmtKind, UnsafeSource,
+    is_range_literal, BinOpKind, BlockCheckMode, Expr, ExprKind, ItemKind, Node, PatKind, Stmt, StmtKind, UnOp,
+    UnsafeSource,
 };
 use rustc_infer::infer::TyCtxtInferExt as _;
 use rustc_lint::{LateContext, LateLintPass, LintContext};
@@ -259,12 +260,20 @@ fn reduce_expression<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<Vec
     if expr.span.from_expansion() {
         return None;
     }
+
+    let typeck_results = cx.typeck_results();
     match expr.kind {
         ExprKind::Index(a, b, _) => Some(vec![a, b]),
-        ExprKind::Binary(ref binop, a, b) if binop.node != BinOpKind::And && binop.node != BinOpKind::Or => {
+        ExprKind::Binary(ref binop, a, b)
+            if binop.node != BinOpKind::And
+                && binop.node != BinOpKind::Or
+                && typeck_results.expr_ty(a).is_scalar()
+                && typeck_results.expr_ty(b).is_scalar() =>
+        {
             Some(vec![a, b])
         },
         ExprKind::Array(v) | ExprKind::Tup(v) => Some(v.iter().collect()),
+        ExprKind::Unary(UnOp::Neg | UnOp::Not, inner) if typeck_results.expr_ty(inner).is_scalar() => Some(vec![inner]),
         ExprKind::Repeat(inner, _)
         | ExprKind::Cast(inner, _)
         | ExprKind::Type(inner, _)

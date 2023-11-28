@@ -11,6 +11,7 @@ use rustc_hir::{
 use rustc_infer::infer::TyCtxtInferExt as _;
 use rustc_lint::{LateContext, LateLintPass, LintContext};
 use rustc_middle::lint::in_external_macro;
+use rustc_middle::ty::adjustment::Adjust;
 use rustc_session::declare_lint_pass;
 use std::ops::Deref;
 
@@ -163,6 +164,8 @@ fn has_no_effect(cx: &LateContext<'_>, expr: &Expr<'_>) -> bool {
         ExprKind::Path(..) => !has_drop(cx, cx.typeck_results().expr_ty(expr)),
         ExprKind::Index(a, b, _) | ExprKind::Binary(_, a, b) => has_no_effect(cx, a) && has_no_effect(cx, b),
         ExprKind::Array(v) | ExprKind::Tup(v) => v.iter().all(|val| has_no_effect(cx, val)),
+        // A cast such as `foo as &dyn Send` might be used to enforce that `foo` implements `Send`.
+        ExprKind::Cast(_, to_ty) if cx.typeck_results().node_type(to_ty.hir_id).peel_refs().is_trait() => false,
         ExprKind::Repeat(inner, _)
         | ExprKind::Cast(inner, _)
         | ExprKind::Type(inner, _)
@@ -262,6 +265,13 @@ fn reduce_expression<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<Vec
     }
 
     let typeck_results = cx.typeck_results();
+    if typeck_results
+        .expr_adjustments(expr)
+        .iter()
+        .any(|adj| matches!(adj.kind, Adjust::Deref(Some(_))))
+    {
+        return None;
+    }
     match expr.kind {
         ExprKind::Index(a, b, _) => Some(vec![a, b]),
         ExprKind::Binary(ref binop, a, b)
@@ -272,6 +282,7 @@ fn reduce_expression<'a>(cx: &LateContext<'_>, expr: &'a Expr<'a>) -> Option<Vec
         {
             Some(vec![a, b])
         },
+        ExprKind::Cast(_, to_ty) if cx.typeck_results().node_type(to_ty.hir_id).peel_refs().is_trait() => None,
         ExprKind::Array(v) | ExprKind::Tup(v) => Some(v.iter().collect()),
         ExprKind::Unary(UnOp::Neg | UnOp::Not, inner) if typeck_results.expr_ty(inner).is_scalar() => Some(vec![inner]),
         ExprKind::Repeat(inner, _)

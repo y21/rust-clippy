@@ -178,14 +178,10 @@ impl<'tcx> LateLintPass<'tcx> for IndexingSlicing {
                             && *utype == ty::UintTy::Usize
                             && let ty::Array(_, s) = ty.kind()
                             && let Some(size) = s.try_eval_target_usize(cx.tcx, cx.param_env)
-                        {
                             // get constant offset and check whether it is in bounds
-                            let off = usize::try_from(off).unwrap();
-                            let size = usize::try_from(size).unwrap();
-
-                            if off >= size {
-                                span_lint(cx, OUT_OF_BOUNDS_INDEXING, expr.span, "index is out of bounds");
-                            }
+                            && off >= u128::from(size)
+                        {
+                            span_lint(cx, OUT_OF_BOUNDS_INDEXING, expr.span, "index is out of bounds");
                         }
                         // Let rustc's `const_err` lint handle constant `usize` indexing on arrays.
                         return;

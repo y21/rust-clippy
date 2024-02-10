@@ -1,0 +1,10 @@
+error: index is out of bounds
+  --> $DIR/ice-12253.rs:7:5
+   |
+LL |     C[0xfffffe7fffffffffffffffffffffffff];
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[deny(clippy::out_of_bounds_indexing)]` on by default
+
+error: aborting due to 1 previous error
+

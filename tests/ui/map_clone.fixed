@@ -118,3 +118,30 @@ fn main() {
     let x: Result<String, ()> = Ok(String::new());
     let y = x.as_ref().map(|x| String::clone(x));
 }
+
+mod issue12359 {
+    use std::ops::Deref;
+    use std::sync::Arc;
+
+    pub struct Wrap<T> {
+        inner: T,
+    }
+
+    impl<T> Deref for Wrap<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    pub struct Thing {
+        current: Vec<Wrap<Arc<u32>>>,
+    }
+
+    impl Thing {
+        pub fn first(&self) -> Option<Arc<u32>> {
+            self.current.first().map(|p| Arc::clone(p))
+        }
+    }
+}

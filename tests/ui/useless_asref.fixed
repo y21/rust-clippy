@@ -180,6 +180,33 @@ mod issue12135 {
     }
 }
 
+mod issue12357 {
+    use std::ops::Deref;
+    use std::sync::Arc;
+
+    pub struct Wrap<T> {
+        inner: T,
+    }
+
+    impl<T> Deref for Wrap<T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            &self.inner
+        }
+    }
+
+    pub struct Thing {
+        current: Option<Wrap<Arc<u32>>>,
+    }
+
+    impl Thing {
+        pub fn fetch(&self) -> Option<Arc<u32>> {
+            self.current.as_ref().map(|p| Arc::clone(p))
+        }
+    }
+}
+
 fn main() {
     not_ok();
     ok();

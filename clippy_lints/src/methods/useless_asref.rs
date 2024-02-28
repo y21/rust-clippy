@@ -2,12 +2,12 @@ use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::source::snippet_with_applicability;
 use clippy_utils::ty::walk_ptrs_ty_depth;
 use clippy_utils::{
-    get_parent_expr, is_diag_trait_item, match_def_path, path_to_local_id, paths, peel_blocks, strip_pat_refs,
+    expr_custom_deref_adjustment, get_parent_expr, is_diag_trait_item, match_def_path, path_to_local_id, paths,
+    peel_blocks, strip_pat_refs,
 };
 use rustc_errors::Applicability;
 use rustc_hir as hir;
 use rustc_lint::LateContext;
-use rustc_middle::ty::adjustment::Adjust;
 use rustc_middle::ty::{Ty, TyCtxt, TypeSuperVisitable, TypeVisitable, TypeVisitor};
 use rustc_span::{sym, Span};
 
@@ -125,8 +125,7 @@ fn is_calling_clone(cx: &LateContext<'_>, arg: &hir::Expr<'_>) -> bool {
                         // We check it's the `Clone` trait.
                         && cx.tcx.lang_items().clone_trait().map_or(false, |id| id == trait_id)
                         // no autoderefs
-                        && !cx.typeck_results().expr_adjustments(obj).iter()
-                            .any(|a| matches!(a.kind, Adjust::Deref(Some(..))))
+                        && expr_custom_deref_adjustment(cx, obj).is_none()
                         && path_to_local_id(obj, local_id)
                     {
                         true
@@ -137,6 +136,7 @@ fn is_calling_clone(cx: &LateContext<'_>, arg: &hir::Expr<'_>) -> bool {
                 hir::ExprKind::Call(call, [recv]) => {
                     if let hir::ExprKind::Path(qpath) = call.kind
                         && path_to_local_id(recv, local_id)
+                        && expr_custom_deref_adjustment(cx, recv).is_none()
                     {
                         check_qpath(cx, qpath, call.hir_id)
                     } else {

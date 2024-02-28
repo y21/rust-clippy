@@ -2,14 +2,13 @@ use clippy_config::msrvs::{self, Msrv};
 use clippy_utils::diagnostics::span_lint_and_sugg;
 use clippy_utils::source::snippet_with_applicability;
 use clippy_utils::ty::{is_copy, is_type_diagnostic_item};
-use clippy_utils::{is_diag_trait_item, match_def_path, paths, peel_blocks};
+use clippy_utils::{expr_custom_deref_adjustment, is_diag_trait_item, match_def_path, paths, peel_blocks};
 use rustc_errors::Applicability;
 use rustc_hir as hir;
 use rustc_hir::def_id::DefId;
 use rustc_lint::LateContext;
 use rustc_middle::mir::Mutability;
 use rustc_middle::ty;
-use rustc_middle::ty::adjustment::Adjust;
 use rustc_span::symbol::Ident;
 use rustc_span::{sym, Span};
 
@@ -72,8 +71,7 @@ pub(super) fn check(cx: &LateContext<'_>, e: &hir::Expr<'_>, recv: &hir::Expr<'_
                                 && let Some(trait_id) = cx.tcx.trait_of_item(fn_id)
                                 && cx.tcx.lang_items().clone_trait().map_or(false, |id| id == trait_id)
                                 // no autoderefs
-                                && !cx.typeck_results().expr_adjustments(obj).iter()
-                                    .any(|a| matches!(a.kind, Adjust::Deref(Some(..))))
+                                && expr_custom_deref_adjustment(cx, obj).is_none()
                                 {
                                     let obj_ty = cx.typeck_results().expr_ty(obj);
                                     if let ty::Ref(_, ty, mutability) = obj_ty.kind() {
@@ -86,8 +84,10 @@ pub(super) fn check(cx: &LateContext<'_>, e: &hir::Expr<'_>, recv: &hir::Expr<'_
                                     }
                                 }
                             },
-                            hir::ExprKind::Call(call, [_]) => {
-                                if let hir::ExprKind::Path(qpath) = call.kind {
+                            hir::ExprKind::Call(call, [arg]) => {
+                                if let hir::ExprKind::Path(qpath) = call.kind
+                                    && expr_custom_deref_adjustment(cx, arg).is_none()
+                                {
                                     handle_path(cx, call, &qpath, e, recv);
                                 }
                             },

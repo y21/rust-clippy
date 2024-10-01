@@ -10,7 +10,7 @@ use rustc_data_structures::unhash::UnhashMap;
 use rustc_errors::Applicability;
 use rustc_hir::def::Res;
 use rustc_hir::{
-    GenericArg, GenericBound, Generics, Item, ItemKind, LangItem, Node, Path, PathSegment, PredicateOrigin, QPath,
+    GenericBound, Generics, Item, ItemKind, LangItem, Node, Path, PathSegment, PredicateOrigin, QPath,
     TraitBoundModifier, TraitItem, TraitRef, Ty, TyKind, WherePredicate,
 };
 use rustc_lint::{LateContext, LateLintPass};
@@ -153,7 +153,10 @@ impl<'tcx> LateLintPass<'tcx> for TraitBounds {
                     .filter_map(get_trait_info_from_bound)
                     .for_each(|(trait_item_res, trait_item_segments, span)| {
                         if let Some(self_segments) = self_bounds_map.get(&trait_item_res) {
-                            if SpanlessEq::new(cx).eq_path_segments(self_segments, trait_item_segments) {
+                            if SpanlessEq::new(cx)
+                                .paths_by_resolution()
+                                .eq_path_segments(self_segments, trait_item_segments)
+                            {
                                 span_lint_and_help(
                                     cx,
                                     TRAIT_DUPLICATION_IN_BOUNDS,
@@ -302,7 +305,7 @@ impl TraitBounds {
     }
 }
 
-fn check_trait_bound_duplication(cx: &LateContext<'_>, generics: &'_ Generics<'_>) {
+fn check_trait_bound_duplication<'tcx>(cx: &LateContext<'tcx>, generics: &'_ Generics<'tcx>) {
     if generics.span.from_expansion() {
         return;
     }
@@ -367,11 +370,21 @@ fn check_trait_bound_duplication(cx: &LateContext<'_>, generics: &'_ Generics<'_
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
-struct ComparableTraitRef(Res, Vec<Res>);
-impl Default for ComparableTraitRef {
-    fn default() -> Self {
-        Self(Res::Err, Vec::new())
+#[derive(Clone)]
+struct ComparableTraitRef<'a, 'tcx>(&'a LateContext<'tcx>, &'tcx TraitRef<'tcx>);
+impl PartialEq for ComparableTraitRef<'_, '_> {
+    fn eq(&self, other: &Self) -> bool {
+        SpanlessEq::new(self.0)
+            .paths_by_resolution()
+            .eq_path(self.1.path, other.1.path)
+    }
+}
+impl Eq for ComparableTraitRef<'_, '_> {}
+impl Hash for ComparableTraitRef<'_, '_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut s = SpanlessHash::new(self.0).paths_by_resolution();
+        s.hash_path(self.1.path);
+        state.write_u64(s.finish());
     }
 }
 
@@ -400,39 +413,17 @@ fn get_ty_res(ty: Ty<'_>) -> Option<Res> {
     }
 }
 
-// FIXME: ComparableTraitRef does not support nested bounds needed for associated_type_bounds
-fn into_comparable_trait_ref(trait_ref: &TraitRef<'_>) -> ComparableTraitRef {
-    ComparableTraitRef(
-        trait_ref.path.res,
-        trait_ref
-            .path
-            .segments
-            .iter()
-            .filter_map(|segment| {
-                // get trait bound type arguments
-                Some(segment.args?.args.iter().filter_map(|arg| {
-                    if let GenericArg::Type(ty) = arg {
-                        return get_ty_res(**ty);
-                    }
-                    None
-                }))
-            })
-            .flatten()
-            .collect(),
-    )
-}
-
-fn rollup_traits(
-    cx: &LateContext<'_>,
-    bounds: &[GenericBound<'_>],
+fn rollup_traits<'cx, 'tcx>(
+    cx: &'cx LateContext<'tcx>,
+    bounds: &'tcx [GenericBound<'tcx>],
     msg: &'static str,
-) -> Vec<(ComparableTraitRef, Span)> {
+) -> Vec<(ComparableTraitRef<'cx, 'tcx>, Span)> {
     let mut map = FxHashMap::default();
     let mut repeated_res = false;
 
-    let only_comparable_trait_refs = |bound: &GenericBound<'_>| {
+    let only_comparable_trait_refs = |bound: &'tcx GenericBound<'tcx>| {
         if let GenericBound::Trait(t, _) = bound {
-            Some((into_comparable_trait_ref(&t.trait_ref), t.span))
+            Some((ComparableTraitRef(cx, &t.trait_ref), t.span))
         } else {
             None
         }
@@ -451,10 +442,11 @@ fn rollup_traits(
     }
 
     // Put bounds in source order
-    let mut comparable_bounds = vec![Default::default(); map.len()];
+    let mut comparable_bounds = vec![None; map.len()];
     for (k, (v, i)) in map {
-        comparable_bounds[i] = (k, v);
+        comparable_bounds[i] = Some((k, v));
     }
+    let comparable_bounds = comparable_bounds.into_iter().flatten().collect::<Vec<_>>();
 
     if repeated_res && let [first_trait, .., last_trait] = bounds {
         let all_trait_span = first_trait.span().to(last_trait.span());

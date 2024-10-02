@@ -752,6 +752,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
         }
     }
 
+    #[must_use]
     pub fn paths_by_resolution(self) -> Self {
         Self {
             path_check: PathCheck::Resolution,

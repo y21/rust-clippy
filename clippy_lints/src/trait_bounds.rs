@@ -316,6 +316,10 @@ fn check_trait_bound_duplication<'tcx>(cx: &LateContext<'tcx>, generics: &'_ Gen
     //       |
     // collects each of these where clauses into a set keyed by generic name and comparable trait
     // eg. (T, Clone)
+    #[expect(
+        clippy::mutable_key_type,
+        reason = "LateContext stores a Cell, but we don't actually mutate it"
+    )]
     let where_predicates = generics
         .predicates
         .iter()

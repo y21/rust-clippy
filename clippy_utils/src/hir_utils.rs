@@ -27,11 +27,10 @@ type SpanlessEqCallback<'a> = dyn FnMut(&Expr<'_>, &Expr<'_>) -> bool + 'a;
 pub enum PathCheck {
     /// Paths must match exactly and are hashed by their exact HIR tree.
     ///
-    /// Thus, `std::iter::Iterator` and `Iterator` (brought into scope) are not considered equal even
-    /// though they refer to the same item.
+    /// Thus, `Option::Some` and `Some` are not considered equal even though they refer to the same item.
     #[default]
     Exact,
-    /// Paths are compared and hashed with their resolution.
+    /// Paths are compared and hashed based on their resolution.
     ///
     /// They can appear different in the HIR tree but are still
     /// considered equal and have equal hashes as long as they refer to the same item
@@ -511,18 +510,20 @@ impl HirEqInterExpr<'_, '_, '_> {
     }
 
     fn eq_qpath(&mut self, left: &QPath<'_>, left_id: HirId, right: &QPath<'_>, right_id: HirId) -> bool {
-        match self.inner.path_check {
-            PathCheck::Exact => match (left, right) {
-                (&QPath::Resolved(ref lty, lpath), &QPath::Resolved(ref rty, rpath)) => {
-                    both(lty.as_ref(), rty.as_ref(), |l, r| self.eq_ty(l, r)) && self.eq_path(lpath, rpath)
-                },
-                (&QPath::TypeRelative(lty, lseg), &QPath::TypeRelative(rty, rseg)) => {
-                    self.eq_ty(lty, rty) && self.eq_path_segment(lseg, rseg)
-                },
-                (&QPath::LangItem(llang_item, ..), &QPath::LangItem(rlang_item, ..)) => llang_item == rlang_item,
-                _ => false,
+        match (left, right) {
+            (&QPath::Resolved(ref lty, lpath), &QPath::Resolved(ref rty, rpath)) => {
+                both(lty.as_ref(), rty.as_ref(), |l, r| self.eq_ty(l, r)) && self.eq_path(lpath, rpath)
             },
-            PathCheck::Resolution => self.inner.cx.qpath_res(left, left_id) == self.inner.cx.qpath_res(right, right_id),
+            (&QPath::TypeRelative(lty, lseg), &QPath::TypeRelative(rty, rseg)) => {
+                if let PathCheck::Resolution = self.inner.path_check {
+                    // Type relative qpaths are usually resolved during type-checking and have error resolutions at HIR construction, so use qpath_res here
+                    self.inner.cx.qpath_res(left, left_id) == self.inner.cx.qpath_res(right, right_id) && self.eq_path_parameters(lseg.args(), rseg.args())
+                } else {
+                    self.eq_ty(lty, rty) && self.eq_path_segment(lseg, rseg)
+                }
+            },
+            (&QPath::LangItem(llang_item, ..), &QPath::LangItem(rlang_item, ..)) => llang_item == rlang_item,
+            _ => false,
         }
     }
 
@@ -559,13 +560,12 @@ impl HirEqInterExpr<'_, '_, '_> {
             return false;
         }
 
-        match self.inner.path_check {
-            PathCheck::Exact => {
-                // The == of idents doesn't work with different contexts,
-                // we have to be explicit about hygiene
-                left.ident.name == right.ident.name
-            },
-            PathCheck::Resolution => left.res == right.res,
+        if let PathCheck::Resolution = self.inner.path_check
+            && (left.res != Res::Err || right.res != Res::Err)
+        {
+            left.res == right.res
+        } else {
+            left.ident.name == right.ident.name
         }
     }
 
@@ -1008,19 +1008,11 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
     }
 
     pub fn hash_qpath(&mut self, p: &QPath<'_>, id: HirId) {
-        match self.path_check {
-            PathCheck::Exact => match *p {
-                QPath::Resolved(_, path) => {
-                    self.hash_path(path);
-                },
-                QPath::TypeRelative(_, path) => {
-                    self.hash_name(path.ident.name);
-                },
-                QPath::LangItem(lang_item, ..) => {
-                    std::mem::discriminant(&lang_item).hash(&mut self.s);
-                },
-            },
-            PathCheck::Resolution => self.cx.qpath_res(p, id).hash(&mut self.s),
+        match (p, self.path_check) {
+            (QPath::Resolved(_, path), _) => self.hash_path(path),
+            (QPath::TypeRelative(_, path), PathCheck::Exact) => self.hash_name(path.ident.name),
+            (QPath::LangItem(lang_item, ..), PathCheck::Exact) => std::mem::discriminant(lang_item).hash(&mut self.s),
+            (_, PathCheck::Resolution) => self.cx.qpath_res(p, id).hash(&mut self.s)
         }
     }
 
@@ -1092,25 +1084,23 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
     }
 
     pub fn hash_path(&mut self, path: &Path<'_>) {
-        match self.path_check {
-            PathCheck::Exact => match path.res {
-                // constant hash since equality is dependant on inter-expression context
-                // e.g. The expressions `if let Some(x) = foo() {}` and `if let Some(y) = foo() {}` are considered equal
-                // even though the binding names are different and they have different `HirId`s.
-                Res::Local(_) => 1_usize.hash(&mut self.s),
-                _ => {
-                    for seg in path.segments {
-                        self.hash_name(seg.ident.name);
-                        self.hash_generic_args(seg.args().args);
-                    }
-                },
+        match (path.res, self.path_check) {
+            // constant hash since equality is dependant on inter-expression context
+            // e.g. The expressions `if let Some(x) = foo() {}` and `if let Some(y) = foo() {}` are considered equal
+            // even though the binding names are different and they have different `HirId`s.
+            (Res::Local(_), _) => 1_usize.hash(&mut self.s),
+            (_, PathCheck::Exact) => {
+                for seg in path.segments {
+                    self.hash_name(seg.ident.name);
+                    self.hash_generic_args(seg.args().args);
+                }
             },
-            PathCheck::Resolution => {
+            (_, PathCheck::Resolution) => {
                 if let Some(segment) = path.segments.last() {
                     segment.res.hash(&mut self.s);
                     self.hash_generic_args(segment.args().args);
                 }
-            },
+            }
         }
     }
 

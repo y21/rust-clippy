@@ -405,14 +405,6 @@ fn get_trait_info_from_bound<'a>(bound: &'a GenericBound<'_>) -> Option<(Res, &'
     }
 }
 
-fn get_ty_res(ty: Ty<'_>) -> Option<Res> {
-    match ty.kind {
-        TyKind::Path(QPath::Resolved(_, path)) => Some(path.res),
-        TyKind::Path(QPath::TypeRelative(ty, _)) => get_ty_res(*ty),
-        _ => None,
-    }
-}
-
 fn rollup_traits<'cx, 'tcx>(
     cx: &'cx LateContext<'tcx>,
     bounds: &'tcx [GenericBound<'tcx>],

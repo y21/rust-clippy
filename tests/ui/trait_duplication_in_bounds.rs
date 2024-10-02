@@ -1,5 +1,6 @@
 #![deny(clippy::trait_duplication_in_bounds)]
 #![allow(unused)]
+#![feature(const_trait_impl)]
 
 use std::any::Any;
 
@@ -142,6 +143,18 @@ fn f<P: Proj>(obj: &dyn Derived<P>) {
     obj.is_derived();
     Base::<P::S>::is_base(obj);
     Base::<()>::is_base(obj);
+}
+
+// #13476
+trait Value<const N: usize> {}
+fn const_generic<T: Value<0> + Value<1>>() {}
+
+// #11067 and #9626
+fn assoc_tys_generics<'a, 'b, T, U>()
+where
+    T: IntoIterator<Item = ()> + IntoIterator<Item = i32>,
+    U: From<&'a str> + From<&'b [u16]>,
+{
 }
 
 fn main() {

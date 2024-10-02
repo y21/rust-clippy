@@ -58,5 +58,11 @@ error: this trait bound is already specified in trait declaration
 LL | fn bad_trait_object(arg0: &(dyn Any + Send + Send)) {
    |                                 ^^^^^^^^^^^^^^^^^ help: try: `Any + Send`
 
-error: aborting due to 9 previous errors
+error: these bounds contain repeated elements
+  --> tests/ui/trait_duplication_in_bounds.rs:165:36
+   |
+LL | const fn const_trait_bounds_bad<T: ~const ConstTrait + ~const ConstTrait>() {}
+   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ help: try: `~const ConstTrait`
+
+error: aborting due to 10 previous errors
 

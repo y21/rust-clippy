@@ -27,7 +27,8 @@ type SpanlessEqCallback<'a> = dyn FnMut(&Expr<'_>, &Expr<'_>) -> bool + 'a;
 pub enum PathCheck {
     /// Paths must match exactly and are hashed by their exact HIR tree.
     ///
-    /// Thus, `Option::Some` and `Some` are not considered equal even though they refer to the same item.
+    /// Thus, `Option::Some` and `Some` are not considered equal even though they refer to the same
+    /// item.
     #[default]
     Exact,
     /// Paths are compared and hashed based on their resolution.
@@ -454,7 +455,6 @@ impl HirEqInterExpr<'_, '_, '_> {
 
     fn eq_const_arg(&mut self, left: &ConstArg<'_>, right: &ConstArg<'_>) -> bool {
         match (&left.kind, &right.kind) {
-            // TODO: check that this hirid is really correct
             (ConstArgKind::Path(l_p), ConstArgKind::Path(r_p)) => self.eq_qpath(l_p, left.hir_id, r_p, right.hir_id),
             (ConstArgKind::Anon(l_an), ConstArgKind::Anon(r_an)) => self.eq_body(l_an.body, r_an.body),
             // Use explicit match for now since ConstArg is undergoing flux.
@@ -516,8 +516,10 @@ impl HirEqInterExpr<'_, '_, '_> {
             },
             (&QPath::TypeRelative(lty, lseg), &QPath::TypeRelative(rty, rseg)) => {
                 if let PathCheck::Resolution = self.inner.path_check {
-                    // Type relative qpaths are usually resolved during type-checking and have error resolutions at HIR construction, so use qpath_res here
-                    self.inner.cx.qpath_res(left, left_id) == self.inner.cx.qpath_res(right, right_id) && self.eq_path_parameters(lseg.args(), rseg.args())
+                    // Type relative qpaths are usually resolved during type-checking and have error resolutions at HIR
+                    // construction, so use qpath_res here
+                    self.inner.cx.qpath_res(left, left_id) == self.inner.cx.qpath_res(right, right_id)
+                        && self.eq_path_parameters(lseg.args(), rseg.args())
                 } else {
                     self.eq_ty(lty, rty) && self.eq_path_segment(lseg, rseg)
                 }
@@ -531,7 +533,7 @@ impl HirEqInterExpr<'_, '_, '_> {
         match (left.res, right.res) {
             (Res::Local(l), Res::Local(r)) => l == r || self.locals.get(&l) == Some(&r),
             (Res::Local(_), _) | (_, Res::Local(_)) => false,
-            _ => self.eq_path_segments(left.segments, right.segments)
+            _ => self.eq_path_segments(left.segments, right.segments),
         }
     }
 
@@ -546,9 +548,7 @@ impl HirEqInterExpr<'_, '_, '_> {
 
     pub fn eq_path_segments(&mut self, left: &[PathSegment<'_>], right: &[PathSegment<'_>]) -> bool {
         match self.inner.path_check {
-            PathCheck::Exact => {
-                over(left, right, |l, r| self.eq_path_segment(l, r))
-            },
+            PathCheck::Exact => over(left, right, |l, r| self.eq_path_segment(l, r)),
             PathCheck::Resolution => both(left.last(), right.last(), |l, r| self.eq_path_segment(l, r)),
         }
     }
@@ -910,7 +910,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                         InlineAsmOperand::Const { anon_const } | InlineAsmOperand::SymFn { anon_const } => {
                             self.hash_body(anon_const.body);
                         },
-                        InlineAsmOperand::SymStatic { path, def_id: _ } => self.hash_qpath(path, e.hir_id), // TODO: what is the hirid here??
+                        InlineAsmOperand::SymStatic { path, def_id: _ } => self.hash_qpath(path, e.hir_id),
                         InlineAsmOperand::Label { block } => self.hash_block(block),
                     }
                 }
@@ -1012,7 +1012,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
             (QPath::Resolved(_, path), _) => self.hash_path(path),
             (QPath::TypeRelative(_, path), PathCheck::Exact) => self.hash_name(path.ident.name),
             (QPath::LangItem(lang_item, ..), PathCheck::Exact) => std::mem::discriminant(lang_item).hash(&mut self.s),
-            (_, PathCheck::Resolution) => self.cx.qpath_res(p, id).hash(&mut self.s)
+            (_, PathCheck::Resolution) => self.cx.qpath_res(p, id).hash(&mut self.s),
         }
     }
 
@@ -1100,7 +1100,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                     segment.res.hash(&mut self.s);
                     self.hash_generic_args(segment.args().args);
                 }
-            }
+            },
         }
     }
 

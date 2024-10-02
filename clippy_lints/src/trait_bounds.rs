@@ -5,7 +5,7 @@ use clippy_utils::source::{SpanRangeExt, snippet, snippet_with_applicability};
 use clippy_utils::{SpanlessEq, SpanlessHash, is_from_proc_macro};
 use core::hash::{Hash, Hasher};
 use itertools::Itertools;
-use rustc_data_structures::fx::{FxHashMap, FxHashSet};
+use rustc_data_structures::fx::{FxHashMap, FxHashSet, FxIndexMap, IndexEntry};
 use rustc_data_structures::unhash::UnhashMap;
 use rustc_errors::Applicability;
 use rustc_hir::def::Res;
@@ -16,7 +16,6 @@ use rustc_hir::{
 use rustc_lint::{LateContext, LateLintPass};
 use rustc_session::impl_lint_pass;
 use rustc_span::{BytePos, Span};
-use std::collections::hash_map::Entry;
 
 declare_clippy_lint! {
     /// ### What it does
@@ -370,21 +369,27 @@ fn check_trait_bound_duplication<'tcx>(cx: &LateContext<'tcx>, generics: &'_ Gen
     }
 }
 
-#[derive(Clone)]
-struct ComparableTraitRef<'a, 'tcx>(&'a LateContext<'tcx>, &'tcx TraitRef<'tcx>);
+struct ComparableTraitRef<'a, 'tcx> {
+    cx: &'a LateContext<'tcx>,
+    trait_ref: &'tcx TraitRef<'tcx>,
+    modifier: TraitBoundModifier,
+}
+
 impl PartialEq for ComparableTraitRef<'_, '_> {
     fn eq(&self, other: &Self) -> bool {
-        SpanlessEq::new(self.0)
-            .paths_by_resolution()
-            .eq_path(self.1.path, other.1.path)
+        self.modifier == other.modifier
+            && SpanlessEq::new(self.cx)
+                .paths_by_resolution()
+                .eq_path(self.trait_ref.path, other.trait_ref.path)
     }
 }
 impl Eq for ComparableTraitRef<'_, '_> {}
 impl Hash for ComparableTraitRef<'_, '_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut s = SpanlessHash::new(self.0).paths_by_resolution();
-        s.hash_path(self.1.path);
+        let mut s = SpanlessHash::new(self.cx).paths_by_resolution();
+        s.hash_path(self.trait_ref.path);
         state.write_u64(s.finish());
+        self.modifier.hash(state);
     }
 }
 
@@ -410,35 +415,35 @@ fn rollup_traits<'cx, 'tcx>(
     bounds: &'tcx [GenericBound<'tcx>],
     msg: &'static str,
 ) -> Vec<(ComparableTraitRef<'cx, 'tcx>, Span)> {
-    let mut map = FxHashMap::default();
+    let mut map = FxIndexMap::default();
     let mut repeated_res = false;
 
     let only_comparable_trait_refs = |bound: &'tcx GenericBound<'tcx>| {
-        if let GenericBound::Trait(t, _) = bound {
-            Some((ComparableTraitRef(cx, &t.trait_ref), t.span))
+        if let GenericBound::Trait(t, modifier) = bound {
+            Some((
+                ComparableTraitRef {
+                    cx,
+                    trait_ref: &t.trait_ref,
+                    modifier: *modifier,
+                },
+                t.span,
+            ))
         } else {
             None
         }
     };
 
-    let mut i = 0usize;
     for bound in bounds.iter().filter_map(only_comparable_trait_refs) {
         let (comparable_bound, span_direct) = bound;
         match map.entry(comparable_bound) {
-            Entry::Occupied(_) => repeated_res = true,
-            Entry::Vacant(e) => {
-                e.insert((span_direct, i));
-                i += 1;
+            IndexEntry::Occupied(_) => repeated_res = true,
+            IndexEntry::Vacant(e) => {
+                e.insert(span_direct);
             },
         }
     }
 
-    // Put bounds in source order
-    let mut comparable_bounds = vec![None; map.len()];
-    for (k, (v, i)) in map {
-        comparable_bounds[i] = Some((k, v));
-    }
-    let comparable_bounds = comparable_bounds.into_iter().flatten().collect::<Vec<_>>();
+    let comparable_bounds: Vec<_> = map.into_iter().collect();
 
     if repeated_res && let [first_trait, .., last_trait] = bounds {
         let all_trait_span = first_trait.span().to(last_trait.span());

@@ -419,6 +419,7 @@ fn rollup_traits<'cx, 'tcx>(
     bounds: &'tcx [GenericBound<'tcx>],
     msg: &'static str,
 ) -> Vec<(ComparableTraitRef<'cx, 'tcx>, Span)> {
+    // Source order is needed for joining spans
     let mut map = FxIndexMap::default();
     let mut repeated_res = false;
 

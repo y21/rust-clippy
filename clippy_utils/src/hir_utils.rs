@@ -5,7 +5,7 @@ use crate::tokenize_with_text;
 use rustc_ast::ast::InlineAsmTemplatePiece;
 use rustc_data_structures::fx::FxHasher;
 use rustc_hir::MatchSource::TryDesugar;
-use rustc_hir::def::Res;
+use rustc_hir::def::{DefKind, Res};
 use rustc_hir::{
     ArrayLen, AssocItemConstraint, BinOpKind, BindingMode, Block, BodyId, Closure, ConstArg, ConstArgKind, Expr,
     ExprField, ExprKind, FnRetTy, GenericArg, GenericArgs, HirId, HirIdMap, InlineAsmOperand, LetExpr, Lifetime,
@@ -17,6 +17,7 @@ use rustc_middle::ty::TypeckResults;
 use rustc_span::{BytePos, ExpnKind, MacroKind, Symbol, SyntaxContext, sym};
 use std::hash::{Hash, Hasher};
 use std::ops::Range;
+use std::slice;
 
 /// Callback that is called when two expressions are not equal in the sense of `SpanlessEq`, but
 /// other conditions would make them equal.
@@ -27,14 +28,19 @@ type SpanlessEqCallback<'a> = dyn FnMut(&Expr<'_>, &Expr<'_>) -> bool + 'a;
 pub enum PathCheck {
     /// Paths must match exactly and are hashed by their exact HIR tree.
     ///
-    /// Thus, `Option::Some` and `Some` are not considered equal even though they refer to the same
-    /// item.
+    /// Thus, `std::iter::Iterator` and `Iterator` are not considered equal even though they refer
+    /// to the same item.
     #[default]
     Exact,
     /// Paths are compared and hashed based on their resolution.
     ///
-    /// They can appear different in the HIR tree but are still
-    /// considered equal and have equal hashes as long as they refer to the same item
+    /// They can appear different in the HIR tree but are still considered equal
+    /// and have equal hashes as long as they refer to the same item.
+    ///
+    /// Note that this is currently only partially implemented specifically for paths that are
+    /// resolved before type-checking, i.e. the final segment must have a non-error resolution.
+    /// If a path with an error resolution is encountered, it falls back to the default exact
+    /// matching behavior.
     Resolution,
 }
 
@@ -369,13 +375,13 @@ impl HirEqInterExpr<'_, '_, '_> {
             (&ExprKind::OffsetOf(l_container, l_fields), &ExprKind::OffsetOf(r_container, r_fields)) => {
                 self.eq_ty(l_container, r_container) && over(l_fields, r_fields, |l, r| l.name == r.name)
             },
-            (ExprKind::Path(l), ExprKind::Path(r)) => self.eq_qpath(l, left.hir_id, r, right.hir_id),
+            (ExprKind::Path(l), ExprKind::Path(r)) => self.eq_qpath(l, r),
             (&ExprKind::Repeat(le, ll), &ExprKind::Repeat(re, rl)) => {
                 self.eq_expr(le, re) && self.eq_array_length(ll, rl)
             },
             (ExprKind::Ret(l), ExprKind::Ret(r)) => both(l.as_ref(), r.as_ref(), |l, r| self.eq_expr(l, r)),
             (&ExprKind::Struct(l_path, lf, ref lo), &ExprKind::Struct(r_path, rf, ref ro)) => {
-                self.eq_qpath(l_path, left.hir_id, r_path, right.hir_id)
+                self.eq_qpath(l_path, r_path)
                 && both(lo.as_ref(), ro.as_ref(), |l, r| self.eq_expr(l, r))
                 && over(lf, rf, |l, r| self.eq_expr_field(l, r))
             },
@@ -455,7 +461,7 @@ impl HirEqInterExpr<'_, '_, '_> {
 
     fn eq_const_arg(&mut self, left: &ConstArg<'_>, right: &ConstArg<'_>) -> bool {
         match (&left.kind, &right.kind) {
-            (ConstArgKind::Path(l_p), ConstArgKind::Path(r_p)) => self.eq_qpath(l_p, left.hir_id, r_p, right.hir_id),
+            (ConstArgKind::Path(l_p), ConstArgKind::Path(r_p)) => self.eq_qpath(l_p, r_p),
             (ConstArgKind::Anon(l_an), ConstArgKind::Anon(r_an)) => self.eq_body(l_an.body, r_an.body),
             // Use explicit match for now since ConstArg is undergoing flux.
             (ConstArgKind::Path(..), ConstArgKind::Anon(..)) | (ConstArgKind::Anon(..), ConstArgKind::Path(..)) => {
@@ -478,10 +484,10 @@ impl HirEqInterExpr<'_, '_, '_> {
         match (&left.kind, &right.kind) {
             (&PatKind::Box(l), &PatKind::Box(r)) => self.eq_pat(l, r),
             (&PatKind::Struct(ref lp, la, ..), &PatKind::Struct(ref rp, ra, ..)) => {
-                self.eq_qpath(lp, left.hir_id, rp, right.hir_id) && over(la, ra, |l, r| self.eq_pat_field(l, r))
+                self.eq_qpath(lp, rp) && over(la, ra, |l, r| self.eq_pat_field(l, r))
             },
             (&PatKind::TupleStruct(ref lp, la, ls), &PatKind::TupleStruct(ref rp, ra, rs)) => {
-                self.eq_qpath(lp, left.hir_id, rp, right.hir_id) && over(la, ra, |l, r| self.eq_pat(l, r)) && ls == rs
+                self.eq_qpath(lp, rp) && over(la, ra, |l, r| self.eq_pat(l, r)) && ls == rs
             },
             (&PatKind::Binding(lb, li, _, ref lp), &PatKind::Binding(rb, ri, _, ref rp)) => {
                 let eq = lb == rb && both(lp.as_ref(), rp.as_ref(), |l, r| self.eq_pat(l, r));
@@ -490,7 +496,7 @@ impl HirEqInterExpr<'_, '_, '_> {
                 }
                 eq
             },
-            (PatKind::Path(l), PatKind::Path(r)) => self.eq_qpath(l, left.hir_id, r, right.hir_id),
+            (PatKind::Path(l), PatKind::Path(r)) => self.eq_qpath(l, r),
             (&PatKind::Lit(l), &PatKind::Lit(r)) => self.eq_expr(l, r),
             (&PatKind::Tuple(l, ls), &PatKind::Tuple(r, rs)) => ls == rs && over(l, r, |l, r| self.eq_pat(l, r)),
             (&PatKind::Range(ref ls, ref le, li), &PatKind::Range(ref rs, ref re, ri)) => {
@@ -509,20 +515,13 @@ impl HirEqInterExpr<'_, '_, '_> {
         }
     }
 
-    fn eq_qpath(&mut self, left: &QPath<'_>, left_id: HirId, right: &QPath<'_>, right_id: HirId) -> bool {
+    fn eq_qpath(&mut self, left: &QPath<'_>, right: &QPath<'_>) -> bool {
         match (left, right) {
             (&QPath::Resolved(ref lty, lpath), &QPath::Resolved(ref rty, rpath)) => {
                 both(lty.as_ref(), rty.as_ref(), |l, r| self.eq_ty(l, r)) && self.eq_path(lpath, rpath)
             },
             (&QPath::TypeRelative(lty, lseg), &QPath::TypeRelative(rty, rseg)) => {
-                if let PathCheck::Resolution = self.inner.path_check {
-                    // Type relative qpaths are usually resolved during type-checking and have error resolutions at HIR
-                    // construction, so use qpath_res here
-                    self.inner.cx.qpath_res(left, left_id) == self.inner.cx.qpath_res(right, right_id)
-                        && self.eq_path_parameters(lseg.args(), rseg.args())
-                } else {
-                    self.eq_ty(lty, rty) && self.eq_path_segment(lseg, rseg)
-                }
+                self.eq_ty(lty, rty) && self.eq_path_segment(lseg, rseg)
             },
             (&QPath::LangItem(llang_item, ..), &QPath::LangItem(rlang_item, ..)) => llang_item == rlang_item,
             _ => false,
@@ -546,22 +545,30 @@ impl HirEqInterExpr<'_, '_, '_> {
         }
     }
 
-    pub fn eq_path_segments(&mut self, left: &[PathSegment<'_>], right: &[PathSegment<'_>]) -> bool {
-        match self.inner.path_check {
-            PathCheck::Exact => over(left, right, |l, r| self.eq_path_segment(l, r)),
-            PathCheck::Resolution => both(left.last(), right.last(), |l, r| self.eq_path_segment(l, r)),
+    pub fn eq_path_segments<'tcx>(
+        &mut self,
+        mut left: &'tcx [PathSegment<'tcx>],
+        mut right: &'tcx [PathSegment<'tcx>],
+    ) -> bool {
+        if let PathCheck::Resolution = self.inner.path_check
+            && let Some(left_seg) = generic_path_segments(left)
+            && let Some(right_seg) = generic_path_segments(right)
+        {
+            left = left_seg;
+            right = right_seg;
         }
+
+        over(left, right, |l, r| self.eq_path_segment(l, r))
     }
 
     pub fn eq_path_segment(&mut self, left: &PathSegment<'_>, right: &PathSegment<'_>) -> bool {
-        if !both(left.args.as_ref(), right.args.as_ref(), |l, r| {
-            self.eq_path_parameters(l, r)
-        }) {
+        if !self.eq_path_parameters(left.args(), right.args()) {
             return false;
         }
 
         if let PathCheck::Resolution = self.inner.path_check
-            && (left.res != Res::Err || right.res != Res::Err)
+            && left.res != Res::Err
+            && right.res != Res::Err
         {
             left.res == right.res
         } else {
@@ -577,7 +584,7 @@ impl HirEqInterExpr<'_, '_, '_> {
             (TyKind::Ref(_, l_rmut), TyKind::Ref(_, r_rmut)) => {
                 l_rmut.mutbl == r_rmut.mutbl && self.eq_ty(l_rmut.ty, r_rmut.ty)
             },
-            (TyKind::Path(l), TyKind::Path(r)) => self.eq_qpath(l, left.hir_id, r, right.hir_id),
+            (TyKind::Path(l), TyKind::Path(r)) => self.eq_qpath(l, r),
             (&TyKind::Tup(l), &TyKind::Tup(r)) => over(l, r, |l, r| self.eq_ty(l, r)),
             (&TyKind::Infer, &TyKind::Infer) => true,
             (TyKind::AnonAdt(l_item_id), TyKind::AnonAdt(r_item_id)) => l_item_id == r_item_id,
@@ -729,6 +736,21 @@ pub fn eq_expr_value(cx: &LateContext<'_>, left: &Expr<'_>, right: &Expr<'_>) ->
     SpanlessEq::new(cx).deny_side_effects().eq_expr(left, right)
 }
 
+/// Returns the segments of a path that might have generic parameters.
+/// Usually just the last segment, except for when the path resolves to an associated item, in which
+/// case it is the last two
+fn generic_path_segments<'tcx>(segments: &'tcx [PathSegment<'tcx>]) -> Option<&'tcx [PathSegment<'tcx>]> {
+    match segments.last()?.res {
+        Res::Def(DefKind::AssocConst | DefKind::AssocFn | DefKind::AssocTy, _) => {
+            // <Ty as module::Trait<T>>::assoc::<U>
+            //        ^^^^^^^^^^^^^^^^   ^^^^^^^^^^ segments: [module, Trait<T>, assoc<U>]
+            Some(&segments[..segments.len().checked_sub(2)?])
+        },
+        Res::Err => None,
+        _ => Some(slice::from_ref(segments.last()?)),
+    }
+}
+
 /// Type used to hash an ast element. This is different from the `Hash` trait
 /// on ast types as this
 /// trait would consider IDs and spans.
@@ -752,6 +774,8 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
         }
     }
 
+    /// Check paths by their resolution instead of exact equality. See [`PathCheck`] for more
+    /// details.
     #[must_use]
     pub fn paths_by_resolution(self) -> Self {
         Self {
@@ -911,7 +935,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                         InlineAsmOperand::Const { anon_const } | InlineAsmOperand::SymFn { anon_const } => {
                             self.hash_body(anon_const.body);
                         },
-                        InlineAsmOperand::SymStatic { path, def_id: _ } => self.hash_qpath(path, e.hir_id),
+                        InlineAsmOperand::SymStatic { path, def_id: _ } => self.hash_qpath(path),
                         InlineAsmOperand::Label { block } => self.hash_block(block),
                     }
                 }
@@ -964,7 +988,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                 }
             },
             ExprKind::Path(ref qpath) => {
-                self.hash_qpath(qpath, e.hir_id);
+                self.hash_qpath(qpath);
             },
             ExprKind::Repeat(e, len) => {
                 self.hash_expr(e);
@@ -976,7 +1000,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                 }
             },
             ExprKind::Struct(path, fields, ref expr) => {
-                self.hash_qpath(path, e.hir_id);
+                self.hash_qpath(path);
 
                 for f in fields {
                     self.hash_name(f.ident.name);
@@ -1008,12 +1032,11 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
         n.hash(&mut self.s);
     }
 
-    pub fn hash_qpath(&mut self, p: &QPath<'_>, id: HirId) {
-        match (p, self.path_check) {
-            (QPath::Resolved(_, path), _) => self.hash_path(path),
-            (QPath::TypeRelative(_, path), PathCheck::Exact) => self.hash_name(path.ident.name),
-            (QPath::LangItem(lang_item, ..), PathCheck::Exact) => std::mem::discriminant(lang_item).hash(&mut self.s),
-            (_, PathCheck::Resolution) => self.cx.qpath_res(p, id).hash(&mut self.s),
+    pub fn hash_qpath(&mut self, p: &QPath<'_>) {
+        match p {
+            QPath::Resolved(_, path) => self.hash_path(path),
+            QPath::TypeRelative(_, path) => self.hash_name(path.ident.name),
+            QPath::LangItem(lang_item, ..) => std::mem::discriminant(lang_item).hash(&mut self.s),
         }
     }
 
@@ -1034,7 +1057,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                     self.hash_pat(pat);
                 }
             },
-            PatKind::Path(ref qpath) => self.hash_qpath(qpath, pat.hir_id),
+            PatKind::Path(ref qpath) => self.hash_qpath(qpath),
             PatKind::Range(s, e, i) => {
                 if let Some(s) = s {
                     self.hash_expr(s);
@@ -1060,7 +1083,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                 }
             },
             PatKind::Struct(ref qpath, fields, e) => {
-                self.hash_qpath(qpath, pat.hir_id);
+                self.hash_qpath(qpath);
                 for f in fields {
                     self.hash_name(f.ident.name);
                     self.hash_pat(f.pat);
@@ -1074,7 +1097,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                 e.hash(&mut self.s);
             },
             PatKind::TupleStruct(ref qpath, pats, e) => {
-                self.hash_qpath(qpath, pat.hir_id);
+                self.hash_qpath(qpath);
                 for pat in pats {
                     self.hash_pat(pat);
                 }
@@ -1085,21 +1108,25 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
     }
 
     pub fn hash_path(&mut self, path: &Path<'_>) {
-        match (path.res, self.path_check) {
+        match path.res {
             // constant hash since equality is dependant on inter-expression context
             // e.g. The expressions `if let Some(x) = foo() {}` and `if let Some(y) = foo() {}` are considered equal
             // even though the binding names are different and they have different `HirId`s.
-            (Res::Local(_), _) => 1_usize.hash(&mut self.s),
-            (_, PathCheck::Exact) => {
-                for seg in path.segments {
-                    self.hash_name(seg.ident.name);
-                    self.hash_generic_args(seg.args().args);
-                }
-            },
-            (_, PathCheck::Resolution) => {
-                if let Some(segment) = path.segments.last() {
-                    segment.res.hash(&mut self.s);
-                    self.hash_generic_args(segment.args().args);
+            Res::Local(_) => 1_usize.hash(&mut self.s),
+            _ => {
+                if let PathCheck::Resolution = self.path_check
+                    && let [.., last] = path.segments
+                    && let Some(segments) = generic_path_segments(path.segments)
+                {
+                    for seg in segments {
+                        self.hash_generic_args(seg.args().args);
+                    }
+                    last.res.hash(&mut self.s);
+                } else {
+                    for seg in path.segments {
+                        self.hash_name(seg.ident.name);
+                        self.hash_generic_args(seg.args().args);
+                    }
                 }
             },
         }
@@ -1135,10 +1162,10 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
 
     pub fn hash_ty(&mut self, ty: &Ty<'_>) {
         std::mem::discriminant(&ty.kind).hash(&mut self.s);
-        self.hash_tykind(&ty.kind, ty.hir_id);
+        self.hash_tykind(&ty.kind);
     }
 
-    pub fn hash_tykind(&mut self, ty: &TyKind<'_>, hir_id: HirId) {
+    pub fn hash_tykind(&mut self, ty: &TyKind<'_>) {
         match ty {
             TyKind::Slice(ty) => {
                 self.hash_ty(ty);
@@ -1180,7 +1207,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
                     self.hash_ty(ty);
                 }
             },
-            TyKind::Path(ref qpath) => self.hash_qpath(qpath, hir_id),
+            TyKind::Path(ref qpath) => self.hash_qpath(qpath),
             TyKind::OpaqueDef(_, arg_list, in_trait) => {
                 self.hash_generic_args(arg_list);
                 in_trait.hash(&mut self.s);
@@ -1211,7 +1238,7 @@ impl<'a, 'tcx> SpanlessHash<'a, 'tcx> {
 
     fn hash_const_arg(&mut self, const_arg: &ConstArg<'_>) {
         match &const_arg.kind {
-            ConstArgKind::Path(path) => self.hash_qpath(path, const_arg.hir_id),
+            ConstArgKind::Path(path) => self.hash_qpath(path),
             ConstArgKind::Anon(anon) => self.hash_body(anon.body),
         }
     }

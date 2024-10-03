@@ -30,7 +30,7 @@ pub enum PathCheck {
     ///
     /// Thus, `std::iter::Iterator` and `Iterator` are not considered equal even though they refer
     /// to the same item.
-    #[default]
+    #[allow(dead_code)]
     Exact,
     /// Paths are compared and hashed based on their resolution.
     ///
@@ -41,6 +41,7 @@ pub enum PathCheck {
     /// resolved before type-checking, i.e. the final segment must have a non-error resolution.
     /// If a path with an error resolution is encountered, it falls back to the default exact
     /// matching behavior.
+    #[default]
     Resolution,
 }
 

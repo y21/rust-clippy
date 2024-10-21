@@ -266,6 +266,7 @@ fn check_unnecessary_operation(cx: &LateContext<'_>, stmt: &Stmt<'_>) {
         && expr.span.ctxt() == ctxt
         && let Some(reduced) = reduce_expression(cx, expr)
         && reduced.iter().all(|e| e.span.ctxt() == ctxt)
+        && !cx.typeck_results().expr_ty(expr).is_never()
     {
         if let ExprKind::Index(..) = &expr.kind {
             if !is_inside_always_const_context(cx.tcx, expr.hir_id)

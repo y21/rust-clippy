@@ -61,11 +61,13 @@ enum VecState {
 pub struct UselessVec {
     too_large_for_stack: u64,
     msrv: Msrv,
-    /// Maps from a `vec![]` source callsite invocation span to the "state" (i.e., whether we can emit a warning there or not).
+    /// Maps from a `vec![]` source callsite invocation span to the "state" (i.e., whether we can
+    /// emit a warning there or not).
     ///
-    /// The purpose of this is to buffer lints up until `check_expr_post` so that we can cancel a lint while visiting,
-    /// because a `vec![]` invocation span can appear multiple times when it is passed as a macro argument,
-    /// once in a context that doesn't require a `Vec<_>` and another time that does. Consider:
+    /// The purpose of this is to buffer lints up until `check_expr_post` so that we can cancel a
+    /// lint while visiting, because a `vec![]` invocation span can appear multiple times when
+    /// it is passed as a macro argument, once in a context that doesn't require a `Vec<_>` and
+    /// another time that does. Consider:
     /// ```
     /// macro_rules! m {
     ///     ($v:expr) => {
@@ -75,8 +77,9 @@ pub struct UselessVec {
     /// }
     /// m!(vec![1, 2]);
     /// ```
-    /// The macro invocation expands to two `vec![1, 2]` invocations. If we eagerly suggest changing it to an array,
-    /// we get a false positive warning on the `$v.push(3)` which really requires `$v` to be a vector.
+    /// The macro invocation expands to two `vec![1, 2]` invocations. If we eagerly suggest changing
+    /// it to an array, we get a false positive warning on the `$v.push(3)` which really
+    /// requires `$v` to be a vector.
     span_to_state: BTreeMap<Span, VecState>,
     allow_in_test: bool,
 }
@@ -93,7 +96,8 @@ impl UselessVec {
 }
 
 enum VecToArray {
-    /// Expression does not need to be a `Vec<_>` and its type can be changed to an array (or slice).
+    /// Expression does not need to be a `Vec<_>` and its type can be changed to an array (or
+    /// slice).
     Possible,
     /// Expression must be a `Vec<_>`. Type cannot change.
     Impossible,
@@ -102,7 +106,7 @@ enum VecToArray {
 impl UselessVec {
     /// Checks if the surrounding environment requires this expression to actually be of type
     /// `Vec<_>`, or if it can be changed to `&[]`/`[]` without causing type errors.
-    fn expr_usage_requires_vec<'tcx>(&mut self, cx: &LateContext<'_>, expr: &'tcx Expr<'_>) -> VecToArray {
+    fn expr_usage_requires_vec(&mut self, cx: &LateContext<'_>, expr: &Expr<'_>) -> VecToArray {
         match cx.tcx.parent_hir_node(expr.hir_id) {
             // search for `let foo = vec![_]` expressions where all uses of `foo`
             // adjust to slices or call a method that exist on slices (e.g. len)
@@ -231,8 +235,8 @@ impl<'tcx> LateLintPass<'tcx> for UselessVec {
                 expr_hir_id,
             } = state
             {
-                let help_msg = format!("you can use {} directly", suggest_ty.desc());
                 span_lint_hir_and_then(cx, USELESS_VEC, expr_hir_id, span, "useless use of `vec!`", |diag| {
+                    let help_msg = format!("you can use {} directly", suggest_ty.desc());
                     // If the `vec!` macro contains comment, better not make the suggestion machine applicable as it
                     // would remove them.
                     let applicability = if span_contains_comment(cx.tcx.sess.source_map(), span) {

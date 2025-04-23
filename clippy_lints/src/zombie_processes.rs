@@ -188,7 +188,11 @@ impl<'tcx> Visitor<'tcx> for WaitFinder<'_, 'tcx> {
             match ex.kind {
                 ExprKind::Ret(e) => {
                     visit_opt!(self, visit_expr, e);
-                    if self.early_return.is_none() {
+
+                    // Only early `return`s in the same body as the original expression creating the `Command` are relevant.
+                    let return_in_same_body = self.cx.tcx.hir_body_owner_def_id(self.cx.enclosing_body.unwrap()) == self.cx.tcx.hir_enclosing_body_owner(ex.hir_id);
+
+                    if self.early_return.is_none() && return_in_same_body {
                         self.early_return = Some(ex.span);
                     }
 

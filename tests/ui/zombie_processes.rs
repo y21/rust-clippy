@@ -166,6 +166,14 @@ fn main() {
             x.wait().unwrap();
         });
     }
+
+    {
+        // #14677
+        let mut x = Command::new("").spawn().unwrap();
+        #[expect(clippy::no_effect)]
+        (|| return);
+        x.wait().unwrap();
+    }
 }
 
 fn process_child(c: Child) {
